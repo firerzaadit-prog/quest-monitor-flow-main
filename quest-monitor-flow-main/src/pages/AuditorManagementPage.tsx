@@ -91,14 +91,13 @@ export default function AuditorManagementPage() {
       body: {
         email: form.email.trim(),
         password: form.password,
-        fullName: form.fullName.trim(),
+        fullName: form.fullName.trim() || "",
         companyName: form.companyName.trim(),
-        industry: form.industry.trim(),
-        address: form.address.trim(),
-        contactPerson: form.contactPerson.trim(),
-        contactEmail: form.contactEmail.trim(),
+        industry: form.industry.trim() || "",
+        address: form.address.trim() || "",
+        contactPerson: form.contactPerson.trim() || "",
+        contactEmail: form.contactEmail.trim() || "",
       },
-      // MASUKKAN TOKEN KE HEADERS
       headers: {
         Authorization: `Bearer ${session?.access_token}`
       }
@@ -166,7 +165,6 @@ export default function AuditorManagementPage() {
         contactPerson: editForm.contactPerson.trim(),
         contactEmail: editForm.contactEmail.trim(),
       },
-      // MASUKKAN TOKEN KE HEADERS
       headers: {
         Authorization: `Bearer ${session?.access_token}`
       }

@@ -31,9 +31,9 @@ Deno.serve(async (req) => {
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
-    const { data: isSuperAdmin } = await adminClient.rpc("has_role", {
-      _user_id: caller.id, _role: "super_admin",
-    });
+ const { data: isSuperAdmin } = await adminClient.rpc("has_role", {
+  _user_id: caller.id, _role: "super_admin",
+});
     if (!isSuperAdmin) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
