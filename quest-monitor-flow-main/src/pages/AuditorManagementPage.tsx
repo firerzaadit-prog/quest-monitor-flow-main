@@ -84,10 +84,9 @@ export default function AuditorManagementPage() {
     if (!form.email.trim() || !form.password.trim() || !form.companyName.trim()) return;
     setSubmitting(true);
 
-    // 1. Ambil session secara manual
+    // PAKSA AMBIL TOKEN MANUAL
     const { data: { session } } = await supabase.auth.getSession();
 
-    // 2. Suntikkan session ke dalam headers
     const { data, error } = await supabase.functions.invoke("create-auditor", {
       body: {
         email: form.email.trim(),
@@ -99,6 +98,7 @@ export default function AuditorManagementPage() {
         contactPerson: form.contactPerson.trim(),
         contactEmail: form.contactEmail.trim(),
       },
+      // MASUKKAN TOKEN KE HEADERS
       headers: {
         Authorization: `Bearer ${session?.access_token}`
       }
@@ -151,10 +151,9 @@ export default function AuditorManagementPage() {
     e.preventDefault();
     setEditSubmitting(true);
 
-    // 1. Ambil session secara manual
+    // PAKSA AMBIL TOKEN MANUAL
     const { data: { session } } = await supabase.auth.getSession();
 
-    // 2. Suntikkan session ke dalam headers
     const { data, error } = await supabase.functions.invoke("update-auditor", {
       body: {
         userId: editUserId,
@@ -167,6 +166,7 @@ export default function AuditorManagementPage() {
         contactPerson: editForm.contactPerson.trim(),
         contactEmail: editForm.contactEmail.trim(),
       },
+      // MASUKKAN TOKEN KE HEADERS
       headers: {
         Authorization: `Bearer ${session?.access_token}`
       }
