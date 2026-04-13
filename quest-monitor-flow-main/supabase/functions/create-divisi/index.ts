@@ -1,7 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
-Deno.serve(async (req) => {
+const corsHeaders = { 
+  "Access-Control-Allow-Origin": "*", 
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" 
+};
+
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -18,22 +22,30 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
+    // 1. Cek Sesi
     const callerClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: { user: caller } } = await callerClient.auth.getUser();
-    if (!caller) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    const { data: { user: caller }, error: callerError } = await callerClient.auth.getUser();
+    
+    if (callerError || !caller) {
+      return new Response(JSON.stringify({ error: "Sesi tidak valid / Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
-    const { data: isAuditor } = await adminClient.rpc("has_role", {
-      _user_id: caller.id, _role: "auditor",
-    });
-    if (!isAuditor) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
+
+    // 2. Cek Role Auditor ke tabel langsung
+    const { data: roleData, error: roleError } = await adminClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", caller.id)
+      .eq("role", "auditor")
+      .single();
+
+    if (roleError || !roleData) {
+      return new Response(JSON.stringify({ error: "Forbidden: Anda bukan Auditor." }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -42,12 +54,12 @@ Deno.serve(async (req) => {
     const { divisiName, picName, picEmail, password } = body;
 
     if (!divisiName || !picName || !picEmail || !password) {
-      return new Response(JSON.stringify({ error: "divisiName, picName, picEmail, and password are required" }), {
+      return new Response(JSON.stringify({ error: "Semua field wajib diisi." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get auditor's company
+    // 3. Dapatkan data Perusahaan (Company) milik Auditor ini
     const { data: companies } = await adminClient
       .from("companies")
       .select("id")
@@ -56,7 +68,7 @@ Deno.serve(async (req) => {
 
     const companyId = companies?.[0]?.id || null;
 
-    // Create divisi user account
+    // 4. Buat Akun User untuk Divisi
     const { data: userData, error: userError } = await adminClient.auth.admin.createUser({
       email: picEmail,
       password,
@@ -72,10 +84,10 @@ Deno.serve(async (req) => {
 
     const userId = userData.user.id;
 
-    // Insert role
+    // 5. Insert Role Divisi
     await adminClient.from("user_roles").insert({ user_id: userId, role: "divisi" });
 
-    // Insert divisi record
+    // 6. Insert data ke tabel Divisi
     const { error: divisiError } = await adminClient.from("divisi").insert({
       auditor_id: caller.id,
       name: divisiName,
@@ -92,8 +104,9 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ success: true, userId }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

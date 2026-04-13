@@ -82,6 +82,9 @@ export default function DivisiPage() {
     if (!form.divisiName.trim() || !form.picName.trim() || !form.picEmail.trim() || !form.password.trim()) return;
     setSubmitting(true);
 
+    // PAKSA AMBIL TOKEN
+    const { data: { session } } = await supabase.auth.getSession();
+
     const { data, error } = await supabase.functions.invoke("create-divisi", {
       body: {
         divisiName: form.divisiName.trim(),
@@ -89,6 +92,10 @@ export default function DivisiPage() {
         picEmail: form.picEmail.trim(),
         password: form.password,
       },
+      // KIRIM TOKEN KE BACKEND
+      headers: {
+        Authorization: `Bearer ${session?.access_token}`
+      }
     });
 
     if (error || data?.error) {
@@ -123,6 +130,9 @@ export default function DivisiPage() {
     if (!editingDivisi || !editName.trim()) return;
     setSubmitting(true);
 
+    // PAKSA AMBIL TOKEN
+    const { data: { session } } = await supabase.auth.getSession();
+
     const body: Record<string, string> = {
       divisiId: editingDivisi.id,
       divisiName: editName.trim(),
@@ -131,7 +141,12 @@ export default function DivisiPage() {
     };
     if (editPassword.trim()) body.newPassword = editPassword.trim();
 
-    const { data, error } = await supabase.functions.invoke("update-divisi", { body });
+    const { data, error } = await supabase.functions.invoke("update-divisi", { 
+      body,
+      headers: {
+        Authorization: `Bearer ${session?.access_token}`
+      }
+    });
 
     if (error || data?.error) {
       toast({ title: "Error", description: data?.error || error?.message, variant: "destructive" });
