@@ -105,7 +105,7 @@ export default function AuditorManagementPage() {
         contactEmail: form.contactEmail.trim() || "",
       },
       headers: {
-        Authorization: `Bearer ${session.access_token}`// Aman karena sudah dicek
+        Authorization: `Bearer ${session?.access_token}`// Aman karena sudah dicek
       }
     });
 
