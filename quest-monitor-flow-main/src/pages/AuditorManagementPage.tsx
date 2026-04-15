@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Trash2, Loader2, UserPlus, Pencil } from "lucide-react";
 
@@ -205,6 +205,7 @@ export default function AuditorManagementPage() {
 
   // menambahkan fungsi handleDelete untuk menghapus auditor berdasarkan userId
   const handleDelete = async (userId: string) => {
+  if (!window.confirm("Apakah Anda yakin ingin menghapus Auditor ini? Semua datanya akan hilang.")) return;
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     toast({ title: "Sesi habis", description: "Silakan login kembali.", variant: "destructive" });
@@ -236,9 +237,10 @@ export default function AuditorManagementPage() {
             <Button><UserPlus className="h-4 w-4 mr-2" /> Tambah Auditor</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Buat Akun Auditor & PT</DialogTitle>
-            </DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Buat Akun Auditor & PT</DialogTitle>
+            <DialogDescription className="sr-only">Form untuk menambah auditor baru</DialogDescription>
+          </DialogHeader>
             <form onSubmit={createAuditor} className="space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">Data Perusahaan</p>
