@@ -84,8 +84,14 @@ export default function AuditorManagementPage() {
     if (!form.email.trim() || !form.password.trim() || !form.companyName.trim()) return;
     setSubmitting(true);
 
-    // PAKSA AMBIL TOKEN MANUAL
-    const { data: { session } } = await supabase.auth.getSession();
+    try {
+      // ✅ Ambil session dengan benar, lalu cek null
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        toast({ title: "Sesi habis", description: "Silakan login kembali.", variant: "destructive" });
+        return;
+      }
 
     const { data, error } = await supabase.functions.invoke("create-auditor", {
       body: {
@@ -99,21 +105,25 @@ export default function AuditorManagementPage() {
         contactEmail: form.contactEmail.trim() || "",
       },
       headers: {
-        Authorization: `Bearer ${session?.access_token}`
+        Authorization: `Bearer ${session.access_token}`// Aman karena sudah dicek
       }
     });
 
     if (error || data?.error) {
-      toast({ title: "Error", description: data?.error || error?.message, variant: "destructive" });
-      setSubmitting(false);
-      return;
-    }
+        toast({ title: "Error", description: data?.error || error?.message, variant: "destructive" });
+        return;
+      }
 
-    toast({ title: "Auditor Dibuat", description: `${form.email} berhasil ditambahkan sebagai auditor untuk ${form.companyName}.` });
-    setForm({ email: "", password: "", fullName: "", companyName: "", industry: "", address: "", contactPerson: "", contactEmail: "" });
-    setDialogOpen(false);
-    setSubmitting(false);
-    loadAuditors();
+      toast({ title: "Auditor Dibuat", description: `${form.email} berhasil ditambahkan sebagai auditor untuk ${form.companyName}.` });
+      setForm({ email: "", password: "", fullName: "", companyName: "", industry: "", address: "", contactPerson: "", contactEmail: "" });
+      setDialogOpen(false);
+      loadAuditors();
+
+    } catch (err: any) {
+      toast({ title: "Error tidak terduga", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false); // ✅ Selalu dieksekusi, tidak akan buffering lagi
+    }
   };
 
   const openEdit = async (auditor: Auditor) => {
@@ -150,37 +160,69 @@ export default function AuditorManagementPage() {
     e.preventDefault();
     setEditSubmitting(true);
 
-    // PAKSA AMBIL TOKEN MANUAL
-    const { data: { session } } = await supabase.auth.getSession();
+    try {
+      // ✅ Ambil session dengan benar, lalu cek null
+      const { data: { session } } = await supabase.auth.getSession();
 
-    const { data, error } = await supabase.functions.invoke("update-auditor", {
-      body: {
-        userId: editUserId,
-        fullName: editForm.fullName.trim(),
-        email: editForm.email.trim(),
-        newPassword: editForm.newPassword || undefined,
-        companyName: editForm.companyName.trim(),
-        industry: editForm.industry.trim(),
-        address: editForm.address.trim(),
-        contactPerson: editForm.contactPerson.trim(),
-        contactEmail: editForm.contactEmail.trim(),
-      },
-      headers: {
-        Authorization: `Bearer ${session?.access_token}`
+      if (!session) {
+        toast({ title: "Sesi habis", description: "Silakan login kembali.", variant: "destructive" });
+        return;
       }
-    });
 
-    if (error || data?.error) {
-      toast({ title: "Error", description: data?.error || error?.message, variant: "destructive" });
-      setEditSubmitting(false);
-      return;
+      const { data, error } = await supabase.functions.invoke("update-auditor", {
+        body: {
+          userId: editUserId,
+          fullName: editForm.fullName.trim(),
+          email: editForm.email.trim(),
+          newPassword: editForm.newPassword || undefined,
+          companyName: editForm.companyName.trim(),
+          industry: editForm.industry.trim(),
+          address: editForm.address.trim(),
+          contactPerson: editForm.contactPerson.trim(),
+          contactEmail: editForm.contactEmail.trim(),
+        },
+        headers: {
+          Authorization: `Bearer ${session.access_token}` // ✅ Aman karena sudah dicek
+        }
+      });
+
+      if (error || data?.error) {
+        toast({ title: "Error", description: data?.error || error?.message, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Berhasil", description: "Data auditor berhasil diperbarui." });
+      setEditDialogOpen(false);
+      loadAuditors();
+
+    } catch (err: any) {
+      toast({ title: "Error tidak terduga", description: err.message, variant: "destructive" });
+    } finally {
+      setEditSubmitting(false); // ✅ Selalu dieksekusi
     }
-
-    toast({ title: "Berhasil", description: "Data auditor berhasil diperbarui." });
-    setEditDialogOpen(false);
-    setEditSubmitting(false);
-    loadAuditors();
   };
+
+
+  // menambahkan fungsi handleDelete untuk menghapus auditor berdasarkan userId
+  const handleDelete = async (userId: string) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    toast({ title: "Sesi habis", description: "Silakan login kembali.", variant: "destructive" });
+    return;
+  }
+
+  const { data, error } = await supabase.functions.invoke("delete-auditor", {
+    body: { userId },
+    headers: { Authorization: `Bearer ${session.access_token}` }
+  });
+
+  if (error || data?.error) {
+    toast({ title: "Gagal menghapus", description: data?.error || error?.message, variant: "destructive" });
+  } else {
+    toast({ title: "Auditor dihapus" });
+    loadAuditors();
+  }
+};
 
   return (
     <div className="space-y-6">
@@ -332,7 +374,7 @@ export default function AuditorManagementPage() {
                       <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={() => openEdit(a)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete(a.user_id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
