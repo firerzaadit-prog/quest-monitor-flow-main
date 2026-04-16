@@ -49,7 +49,7 @@ export default function AuditPublicPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [audit, setAudit] = useState<{ id: string; divisi_id: string; company_id: string | null; status: string; expires_at: string | null; duration_minutes: number | null } | null>(null);
+  const [audit, setAudit] = useState<{ id: string; divisi_id: string; company_id: string | null; status: string; expires_at: string | null; duration_minutes: number | null; warning_minutes: number | null } | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -73,6 +73,9 @@ export default function AuditPublicPage() {
   const [acceptTypes, setAcceptTypes] = useState("");
 
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const warningFiredRef = useRef(false);
+  const [showWarningBanner, setShowWarningBanner] = useState(false);
+  const [warningBannerText, setWarningBannerText] = useState("");
 
   // Tambah state publicExpiresAt untuk menyimpan expires_at sebelum login
   const [publicExpiresAt, setPublicExpiresAt] = useState<string | null>(null);
@@ -174,17 +177,25 @@ export default function AuditPublicPage() {
 
   useEffect(() => {
     if (!audit?.expires_at || completed) return;
+    warningFiredRef.current = false; // reset on new audit
     const durationSecs = audit.duration_minutes ? audit.duration_minutes * 60 : null;
     setTotalDuration(durationSecs);
     const calc = () => Math.max(0, Math.floor((new Date(audit.expires_at!).getTime() - Date.now()) / 1000));
     setTimeLeft(calc());
+    const warningThreshold = audit.warning_minutes ? audit.warning_minutes * 60 : null;
     const interval = setInterval(() => {
       const remaining = calc();
       setTimeLeft(remaining);
+      // Trigger warning notification once
+      if (warningThreshold && !warningFiredRef.current && remaining > 0 && remaining <= warningThreshold) {
+        warningFiredRef.current = true;
+        setWarningBannerText(`Sisa waktu audit: ${audit.warning_minutes} menit lagi. Segera selesaikan jawaban Anda.`);
+        setShowWarningBanner(true);
+      }
       if (remaining <= 0) { setTimeExpired(true); clearInterval(interval); }
     }, 1000);
     return () => clearInterval(interval);
-  }, [audit?.expires_at, audit?.duration_minutes, completed]);
+  }, [audit?.expires_at, audit?.duration_minutes, audit?.warning_minutes, completed]);
 
   useEffect(() => {
     if (!timeExpired || completed) return;
@@ -275,12 +286,12 @@ export default function AuditPublicPage() {
 
   const loadAudit = async (userId: string, divisiId: string) => {
     let { data: auditData } = await supabase
-      .from("audits").select("id, divisi_id, company_id, status, expires_at, duration_minutes")
+      .from("audits").select("id, divisi_id, company_id, status, expires_at, duration_minutes, warning_minutes")
       .eq("divisi_id", divisiId).eq("status", "ongoing").order("created_at", { ascending: false }).limit(1).single();
 
     if (!auditData) {
       const { data: completedAudit } = await supabase
-        .from("audits").select("id, divisi_id, company_id, status, expires_at, duration_minutes")
+        .from("audits").select("id, divisi_id, company_id, status, expires_at, duration_minutes, warning_minutes")
         .eq("divisi_id", divisiId).eq("status", "completed").order("created_at", { ascending: false }).limit(1).single();
 
       if (completedAudit) {
@@ -512,8 +523,8 @@ export default function AuditPublicPage() {
         {phase === "audit" && timeLeft !== null && !completed && (
           <div className={`flex flex-col items-end gap-0.5 min-w-[90px] ${timerUrgency === "critical" ? "animate-pulse" : ""}`}>
             <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 opacity-80" />
-              <span className="text-base font-mono font-bold tracking-tight">
+              <Clock className={`h-3.5 w-3.5 ${showWarningBanner || timerUrgency !== "normal" ? "text-red-300" : "opacity-80"}`} />
+              <span className={`text-base font-mono font-bold tracking-tight ${showWarningBanner || timerUrgency !== "normal" ? "text-red-300" : ""}`}>
                 {timeExpired ? "00:00" : formatTime(timeLeft)}
               </span>
             </div>
@@ -530,6 +541,24 @@ export default function AuditPublicPage() {
       </div>
 
       <div className="flex-1 max-w-2xl mx-auto w-full p-4 flex flex-col">
+        {/* Warning Banner */}
+        {showWarningBanner && !completed && (
+          <div className="mb-3 flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-300 shadow-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+            <div className="flex-1">
+              <span className="font-semibold">⚠️ Waktu Hampir Habis! </span>
+              {warningBannerText}
+            </div>
+            <button
+              onClick={() => setShowWarningBanner(false)}
+              className="ml-2 shrink-0 rounded-full hover:bg-red-100 p-0.5 transition-colors"
+              aria-label="Tutup peringatan"
+            >
+              <X className="h-4 w-4 text-red-500" />
+            </button>
+          </div>
+        )}
+
         {/* Extra time banner */}
         {extraTime && !completed && (
           <div className="mb-3 flex items-center gap-2 bg-orange-50 text-orange-700 px-4 py-2 rounded-lg text-sm border border-orange-200">

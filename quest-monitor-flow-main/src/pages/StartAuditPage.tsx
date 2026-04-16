@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { PlayCircle, Loader2, Clock } from "lucide-react";
+import { PlayCircle, Loader2, Clock, AlertTriangle } from "lucide-react";
 
 export default function StartAuditPage() {
   const { user } = useAuth();
@@ -16,6 +16,7 @@ export default function StartAuditPage() {
   const [submitting, setSubmitting] = useState(false);
   const [hours, setHours] = useState(1);
   const [minutes, setMinutes] = useState(0);
+  const [warningMinutes, setWarningMinutes] = useState(10);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -28,9 +29,18 @@ export default function StartAuditPage() {
   }, [user]);
 
   const totalMinutes = hours * 60 + minutes;
+  const warningInvalid = totalMinutes > 0 && warningMinutes >= totalMinutes;
 
   const handleStart = async () => {
     if (divisiList.length === 0 || totalMinutes <= 0) return;
+    if (warningInvalid) {
+      toast({
+        title: "Peringatan Waktu Tidak Valid",
+        description: `Peringatan waktu (${warningMinutes} menit) harus lebih kecil dari durasi audit (${totalMinutes} menit).`,
+        variant: "destructive",
+      });
+      return;
+    }
     setSubmitting(true);
 
     const now = new Date();
@@ -41,6 +51,7 @@ export default function StartAuditPage() {
       company_id: d.company_id ?? null,
       status: "ongoing",
       duration_minutes: totalMinutes,
+      warning_minutes: warningMinutes > 0 ? warningMinutes : null,
       started_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
     }));
@@ -120,9 +131,36 @@ export default function StartAuditPage() {
             )}
           </div>
 
+          {/* Warning time input */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <AlertTriangle className={`h-4 w-4 ${warningInvalid ? "text-destructive" : "text-amber-500"}`} /> Peringatan Waktu
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={totalMinutes > 0 ? totalMinutes - 1 : 59}
+                value={warningMinutes}
+                onChange={(e) => setWarningMinutes(Math.max(1, parseInt(e.target.value) || 1))}
+                className={`w-20 text-center ${warningInvalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              <span className="text-sm text-muted-foreground">menit sebelum habis</span>
+            </div>
+            {warningInvalid ? (
+              <p className="text-xs text-destructive font-medium">
+                ⚠ Peringatan waktu harus lebih kecil dari durasi audit ({totalMinutes} menit).
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Peserta akan menerima notifikasi saat {warningMinutes} menit tersisa.
+              </p>
+            )}
+          </div>
+
           <Button
             onClick={handleStart}
-            disabled={divisiList.length === 0 || totalMinutes <= 0 || submitting}
+            disabled={divisiList.length === 0 || totalMinutes <= 0 || warningInvalid || submitting}
             className="w-full"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PlayCircle className="h-4 w-4 mr-2" />}
