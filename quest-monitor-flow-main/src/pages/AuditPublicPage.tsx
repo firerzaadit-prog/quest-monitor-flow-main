@@ -73,6 +73,10 @@ export default function AuditPublicPage() {
   const [acceptTypes, setAcceptTypes] = useState("");
 
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+
+  // Tambah state publicExpiresAt untuk menyimpan expires_at sebelum login
+  const [publicExpiresAt, setPublicExpiresAt] = useState<string | null>(null);
+  const [publicTimeLeft, setPublicTimeLeft] = useState<number | null>(null);
   const [isTyping, setIsTyping] = useState(false);
 
   const unlockPublicChat = useCallback((resolvedCompanyName: string) => {
@@ -111,6 +115,21 @@ export default function AuditPublicPage() {
           return;
         }
 
+        // Ambil expires_at untuk ditampilkan sebelum login
+        const { data: auditRow } = await supabase
+          .from("audits")
+          .select("expires_at, duration_minutes")
+          .eq("company_id", data.company_id)
+          .eq("status", "ongoing")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (auditRow?.expires_at) {
+          setPublicExpiresAt(auditRow.expires_at);
+        }
+
+        unlockPublicChat(data.company_name);
         unlockPublicChat(data.company_name);
       } catch {
         setPhase("no_audit_yet");
@@ -171,6 +190,19 @@ export default function AuditPublicPage() {
     if (!timeExpired || completed) return;
     if (isAnswering) { setExtraTime(true); } else { completeAuditDueToTime(); }
   }, [timeExpired, isAnswering, completed]);
+
+  // Timer untuk fase sebelum login (ask_email / ask_password)
+  useEffect(() => {
+    if (!publicExpiresAt || phase === "audit" || phase === "loading") return;
+    const calc = () => Math.max(0, Math.floor((new Date(publicExpiresAt).getTime() - Date.now()) / 1000));
+    setPublicTimeLeft(calc());
+    const interval = setInterval(() => {
+      const remaining = calc();
+      setPublicTimeLeft(remaining);
+      if (remaining <= 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [publicExpiresAt, phase]);
 
   const completeAuditDueToTime = useCallback(async () => {
     if (!audit || completed) return;
@@ -463,6 +495,20 @@ export default function AuditPublicPage() {
             <p className="text-[11px] opacity-60">{divisiName ? `Divisi: ${divisiName}` : "Sesi Audit Aktif"}</p>
           </div>
         </div>
+        {/* Timer: sebelum login (fase ask_email / ask_password) */}
+        {(phase === "ask_email" || phase === "ask_password") && publicTimeLeft !== null && (
+          <div className="flex flex-col items-end gap-0.5 min-w-[90px]">
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 opacity-80" />
+              <span className="text-base font-mono font-bold tracking-tight">
+                {publicTimeLeft <= 0 ? "00:00" : formatTime(publicTimeLeft)}
+              </span>
+            </div>
+            <p className="text-[10px] opacity-60">Sisa waktu sesi</p>
+          </div>
+        )}
+
+        {/* Timer: setelah login (fase audit) */}
         {phase === "audit" && timeLeft !== null && !completed && (
           <div className={`flex flex-col items-end gap-0.5 min-w-[90px] ${timerUrgency === "critical" ? "animate-pulse" : ""}`}>
             <div className="flex items-center gap-1.5">

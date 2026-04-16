@@ -46,6 +46,11 @@ export default function AuditorManagementPage() {
   });
   const [editSubmitting, setEditSubmitting] = useState(false);
 
+  //  Tambah state untuk delete dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Auditor | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
   const loadAuditors = async () => {
     setLoading(true);
     const { data: roles } = await supabase
@@ -203,6 +208,36 @@ export default function AuditorManagementPage() {
   };
 
 
+  // Tambah fungsi deleteAuditor
+  const deleteAuditor = async () => {
+  if (!deleteTarget) return;
+  setDeleteSubmitting(true);
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast({ title: "Sesi habis", description: "Silakan login kembali.", variant: "destructive" });
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke("delete-auditor", {
+      body: { userId: deleteTarget.user_id },
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    });
+    if (error || data?.error) {
+      toast({ title: "Gagal menghapus", description: data?.error || error?.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Auditor Dihapus", description: `${deleteTarget.email} berhasil dihapus.` });
+    setDeleteDialogOpen(false);
+    setDeleteTarget(null);
+    loadAuditors();
+  } catch (err: any) {
+    toast({ title: "Error", description: err.message, variant: "destructive" });
+  } finally {
+    setDeleteSubmitting(false);
+  }
+};
+
+
   // menambahkan fungsi handleDelete untuk menghapus auditor berdasarkan userId
   const handleDelete = async (userId: string) => {
   if (!window.confirm("Apakah Anda yakin ingin menghapus Auditor ini? Semua datanya akan hilang.")) return;
@@ -349,6 +384,48 @@ export default function AuditorManagementPage() {
           </form>
         </DialogContent>
       </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Hapus Auditor
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Anda akan menghapus auditor berikut secara permanen:
+            </p>
+            <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
+              <p className="text-sm font-medium">{deleteTarget?.full_name || "—"}</p>
+              <p className="text-sm text-muted-foreground">{deleteTarget?.email}</p>
+              <p className="text-sm text-muted-foreground">{deleteTarget?.company_name}</p>
+            </div>
+            <p className="text-sm text-destructive font-medium">
+              Tindakan ini tidak dapat dibatalkan. Semua data terkait akan dihapus.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
+              disabled={deleteSubmitting}
+            >
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteAuditor}
+              disabled={deleteSubmitting}
+            >
+              {deleteSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Ya, Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="shadow-card">
         <CardContent className="p-0">
@@ -376,7 +453,12 @@ export default function AuditorManagementPage() {
                       <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" onClick={() => openEdit(a)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete(a.user_id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => { setDeleteTarget(a); setDeleteDialogOpen(true); }}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
