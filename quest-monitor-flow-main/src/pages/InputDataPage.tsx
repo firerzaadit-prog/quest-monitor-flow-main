@@ -12,8 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Zap, FileText, Save, Loader2, Trash2, File } from "lucide-react";
 import { toast } from "sonner";
 
+// ✅ PERUBAHAN 1: "visi_misi" dipecah menjadi "visi" dan "misi" secara terpisah
 const CATEGORIES = [
-  { key: "visi_misi", label: "Visi & Misi" },
+  { key: "visi", label: "Visi" },
+  { key: "misi", label: "Misi" },
   { key: "struktur", label: "Struktur Perusahaan, Jobdesk, Data Karyawan per Bagian" },
   { key: "policy", label: "Policy" },
   { key: "sop", label: "SOP" },
@@ -93,32 +95,62 @@ export default function InputDataPage() {
     onError: () => toast.error("Gagal menghapus"),
   });
 
+  // ✅ PERUBAHAN 2: Sanitize nama file agar tidak ada spasi/karakter khusus
+  // yang menyebabkan Supabase Storage menolak upload
+  const sanitizeFileName = (name: string): string => {
+    const ext = name.includes(".") ? "." + name.split(".").pop() : "";
+    const base = name.replace(/\.[^/.]+$/, ""); // hapus ekstensi
+    const sanitized = base
+      .toLowerCase()
+      .replace(/\s+/g, "_")           // spasi → underscore
+      .replace(/[^a-z0-9_\-]/g, ""); // hapus karakter non-alfanumerik
+    return sanitized + ext;
+  };
+
   const handleFileUpload = async (category: string, file: File) => {
     if (!selectedCompany) return;
     setUploading((prev) => ({ ...prev, [category]: true }));
     try {
-      const filePath = `${selectedCompany}/${category}/${Date.now()}_${file.name}`;
+      // ✅ PERUBAHAN 3: Gunakan nama file yang sudah disanitize
+      const safeName = sanitizeFileName(file.name);
+      const filePath = `${selectedCompany}/${category}/${Date.now()}_${safeName}`;
+
       const { error: uploadError } = await supabase.storage
         .from("company-files")
-        .upload(filePath, file);
-      if (uploadError) throw uploadError;
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      // ✅ PERUBAHAN 4: Tampilkan pesan error spesifik dari Supabase untuk memudahkan debug
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        toast.error(`Gagal mengupload: ${uploadError.message}`);
+        return;
+      }
 
       const { data: urlData } = supabase.storage
         .from("company-files")
         .getPublicUrl(filePath);
 
-      const { error } = await supabase.from("company_documents").insert({
+      const { error: dbError } = await supabase.from("company_documents").insert({
         company_id: selectedCompany,
         category,
         file_url: urlData.publicUrl,
-        file_name: file.name,
+        file_name: file.name, // simpan nama asli untuk ditampilkan ke user
       });
-      if (error) throw error;
+
+      if (dbError) {
+        console.error("DB insert error:", dbError);
+        toast.error(`Gagal menyimpan data file: ${dbError.message}`);
+        return;
+      }
 
       toast.success(`File "${file.name}" berhasil diupload`);
       queryClient.invalidateQueries({ queryKey: ["company-documents", selectedCompany] });
-    } catch {
-      toast.error("Gagal mengupload file");
+    } catch (err: any) {
+      console.error("Unexpected upload error:", err);
+      toast.error(`Error tidak terduga: ${err?.message ?? "Unknown error"}`);
     } finally {
       setUploading((prev) => ({ ...prev, [category]: false }));
     }
