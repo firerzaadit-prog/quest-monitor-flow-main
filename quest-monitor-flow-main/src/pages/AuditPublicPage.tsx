@@ -35,7 +35,7 @@ interface ChatMessage {
   timestamp?: string;
 }
 
-type Phase = "loading" | "not_found" | "no_audit_yet" | "ask_email" | "ask_password" | "audit";
+type Phase = "loading" | "not_found" | "no_audit_yet" | "expired" | "ask_email" | "ask_password" | "audit";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -132,6 +132,12 @@ export default function AuditPublicPage() {
 
         if (auditRow?.expires_at) {
           setPublicExpiresAt(auditRow.expires_at);
+          // If time already expired, show expired screen instead of login
+          const alreadyExpired = new Date(auditRow.expires_at).getTime() <= Date.now();
+          if (alreadyExpired) {
+            setPhase("expired");
+            return;
+          }
         }
         if (auditRow?.warning_minutes) {
           setPublicWarningMinutes(auditRow.warning_minutes);
@@ -222,7 +228,7 @@ export default function AuditPublicPage() {
         setWarningBannerText(`Sisa waktu sesi: ${publicWarningMinutes} menit lagi. Segera login dan selesaikan audit.`);
         setShowWarningBanner(true);
       }
-      if (remaining <= 0) clearInterval(interval);
+      if (remaining <= 0) { clearInterval(interval); setPhase((prev) => (prev === "ask_email" || prev === "ask_password") ? "expired" : prev); }
     }, 1000);
     return () => clearInterval(interval);
   }, [publicExpiresAt, publicWarningMinutes, phase]);
@@ -503,6 +509,26 @@ export default function AuditPublicPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-4 py-2">
           <AlertTriangle className="h-4 w-4" />
           <span>Halaman ini akan aktif setelah auditor memulai sesi audit.</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "expired") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center space-y-6 p-4">
+        <div className="bg-red-100 dark:bg-red-900/30 rounded-full p-6">
+          <Clock className="h-16 w-16 text-red-500" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-foreground">Waktu Audit Telah Habis</h2>
+          <p className="text-muted-foreground max-w-md text-base">
+            Sesi audit untuk perusahaan <span className="font-semibold text-foreground">{companyName || "ini"}</span> telah berakhir karena waktu sudah habis.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-4 py-2">
+          <AlertTriangle className="h-4 w-4 text-red-400" />
+          <span>Silakan hubungi auditor Anda jika ada pertanyaan lebih lanjut.</span>
         </div>
       </div>
     );
