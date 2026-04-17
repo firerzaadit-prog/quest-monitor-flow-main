@@ -24,6 +24,7 @@ interface AuditItem {
   expires_at: string | null;
   duration_minutes: number | null;
   divisi_name: string;
+  pic_name: string; 
   company_name: string;
   auditor_email: string;
 }
@@ -65,14 +66,15 @@ export default function MonitoringPage() {
   const [deletingAll, setDeletingAll] = useState(false);
   const { toast } = useToast();
 
-  const canDelete = role === "super_admin" || role === "auditor";
+  // Role yang diizinkan untuk menghapus satuan atau semua
+  const canManage = role === "super_admin" || role === "auditor";
 
   const load = async () => {
     const { data } = await supabase
       .from("audits")
       .select(`
         id, status, created_at, completed_at, started_at, expires_at, duration_minutes,
-        divisi:divisi_id ( name, auditor_id, companies:company_id ( company_name ) ),
+        divisi:divisi_id ( name, auditor_id, pic_name, companies:company_id ( company_name ) ),
         companies:company_id ( company_name )
       `)
       .order("created_at", { ascending: false });
@@ -82,12 +84,14 @@ export default function MonitoringPage() {
       for (const audit of data) {
         const divisi = audit.divisi as any;
         const company = audit.companies as any;
+        
         let auditorEmail = "";
         if (divisi?.auditor_id) {
           const { data: profile } = await supabase
             .from("profiles").select("email").eq("user_id", divisi.auditor_id).single();
           auditorEmail = profile?.email ?? "";
         }
+
         items.push({
           id: audit.id,
           status: audit.status,
@@ -96,9 +100,10 @@ export default function MonitoringPage() {
           started_at: audit.started_at,
           expires_at: audit.expires_at,
           duration_minutes: audit.duration_minutes,
-          divisi_name: divisi?.name ?? "—",
-          company_name: company?.company_name ?? "—",
-          auditor_email: auditorEmail,
+          divisi_name: divisi?.name || "—",
+          pic_name: divisi?.pic_name || "—", // Murni mengambil dari tabel divisi
+          company_name: company?.company_name || "—",
+          auditor_email: auditorEmail || "—",
         });
       }
       setAudits(items);
@@ -110,6 +115,7 @@ export default function MonitoringPage() {
 
   const handleDelete = async (auditId: string) => {
     setDeleting(auditId);
+    // Hapus relasi terlebih dahulu agar tidak error foreign key
     await supabase.from("audit_answers").delete().eq("audit_id", auditId);
     await supabase.from("audit_reports").delete().eq("audit_id", auditId);
     const { error } = await supabase.from("audits").delete().eq("id", auditId);
@@ -124,44 +130,42 @@ export default function MonitoringPage() {
   };
 
   const handleDeleteAll = async () => {
-      if (audits.length === 0) return;
-      setDeletingAll(true);
-      try {
-        const idsToDelete = audits.map((a) => a.id);
-        
-        // PERBAIKAN: Hapus juga relasi jawabannya seperti pada handleDelete
-        await supabase.from("audit_answers").delete().in("audit_id", idsToDelete);
-        await supabase.from("audit_reports").delete().in("audit_id", idsToDelete);
+    if (audits.length === 0) return;
+    setDeletingAll(true);
+    try {
+      const idsToDelete = audits.map((a) => a.id);
+      
+      // Hapus semua data terkait secara batch
+      await supabase.from("audit_answers").delete().in("audit_id", idsToDelete);
+      await supabase.from("audit_reports").delete().in("audit_id", idsToDelete);
 
-        // PERBAIKAN: Ganti "audit_sessions" menjadi "audits"
-        const { error } = await supabase
-          .from("audits")
-          .delete()
-          .in("id", idsToDelete);
+      const { error } = await supabase
+        .from("audits")
+        .delete()
+        .in("id", idsToDelete);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        toast({
-          title: "Berhasil",
-          description: `${idsToDelete.length} data audit berhasil dihapus.`,
-        });
-        
-        // Kosongkan tabel di UI
-        setAudits([]);
-        setShowDeleteAllDialog(false);
-      } catch (error: any) {
-        console.error(error);
-        toast({
-          title: "Gagal menghapus",
-          description: error.message,
-          variant: "destructive",
-        });
-      } finally {
-        setDeletingAll(false);
-      }
-    };
+      toast({
+        title: "Berhasil",
+        description: `${idsToDelete.length} data audit berhasil dihapus.`,
+      });
+      
+      setAudits([]);
+      setShowDeleteAllDialog(false);
+    } catch (error: any) {
+      console.error(error);
+      toast({
+        title: "Gagal menghapus",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
 
-return (
+  return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-6 gap-4">
         <div>
@@ -169,8 +173,8 @@ return (
           <p className="text-muted-foreground">Pantau status audit dari divisi-divisi Anda</p>
         </div>
         
-        {/* Tombol Hapus Semua muncul jika ada data */}
-        {audits.length > 0 && role === "auditor" && (
+        {/* Tombol Hapus Semua muncul untuk Super Admin dan Auditor */}
+        {audits.length > 0 && canManage && (
           <Button 
             variant="destructive" 
             onClick={() => setShowDeleteAllDialog(true)}
@@ -188,23 +192,25 @@ return (
             <TableHeader>
               <TableRow>
                 <TableHead>Divisi</TableHead>
+                <TableHead>PIC</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Auditor</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Sisa Waktu</TableHead>
                 <TableHead>Started</TableHead>
                 <TableHead>Completed</TableHead>
-                {canDelete && <TableHead className="w-16">Aksi</TableHead>}
+                {canManage && <TableHead className="w-16">Aksi</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={canDelete ? 8 : 7} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={canManage ? 9 : 8} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
               ) : audits.length === 0 ? (
-                <TableRow><TableCell colSpan={canDelete ? 8 : 7} className="text-center py-8 text-muted-foreground">No audits found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={canManage ? 9 : 8} className="text-center py-8 text-muted-foreground">No audits found</TableCell></TableRow>
               ) : audits.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell className="font-medium">{a.divisi_name}</TableCell>
+                  <TableCell>{a.pic_name}</TableCell>
                   <TableCell>{a.company_name}</TableCell>
                   <TableCell>{a.auditor_email}</TableCell>
                   <TableCell>
@@ -226,7 +232,7 @@ return (
                     {a.started_at ? new Date(a.started_at).toLocaleString() : new Date(a.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">{a.completed_at ? new Date(a.completed_at).toLocaleString() : "—"}</TableCell>
-                  {canDelete && (
+                  {canManage && (
                     <TableCell>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -238,7 +244,7 @@ return (
                           <AlertDialogHeader>
                             <AlertDialogTitle>Hapus Audit?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Semua data audit termasuk jawaban dan laporan akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.
+                              Semua data audit termasuk jawaban dan laporan akan dihapus permanen.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -258,7 +264,7 @@ return (
         </CardContent>
       </Card>
 
-      {/* PERBAIKAN: POP UP KONFIRMASI HAPUS SEMUA DIPINDAH KE SINI (DI DALAM DIV UTAMA) */}
+      {/* Dialog Konfirmasi Hapus Semua */}
       <Dialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -272,7 +278,7 @@ return (
               Anda akan menghapus <span className="font-bold text-foreground">{audits.length}</span> sesi audit yang tampil saat ini secara permanen.
             </p>
             <p className="text-sm text-destructive font-medium">
-              Tindakan ini tidak dapat dibatalkan. Semua data terkait termasuk hasil jawaban dan laporan akan ikut terhapus.
+              Tindakan ini tidak dapat dibatalkan.
             </p>
           </div>
           <DialogFooter className="gap-2">
@@ -294,7 +300,6 @@ return (
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div> /* <--- Ini adalah penutup div utama */
+    </div>
   );
 }
-
