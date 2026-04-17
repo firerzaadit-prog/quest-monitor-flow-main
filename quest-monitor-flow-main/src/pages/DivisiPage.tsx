@@ -120,17 +120,36 @@ export default function DivisiPage() {
     setDeleteDialogOpen(true);
   };
 
-  // --- FIX: Actual delete with loading state ---
+ // --- FIX: Actual delete with loading state ---
   const handleDelete = async () => {
     if (!deletingDivisi) return;
     setDeleting(true);
-    const { error } = await supabase.from("divisi").delete().eq("id", deletingDivisi.id);
-    if (error) {
-      toast({ title: "Gagal menghapus", description: error.message, variant: "destructive" });
+
+    // 1. Hapus tabel anak (audits) terlebih dahulu untuk menghindari RLS Conflict (Error 409)
+    const { error: errorAudits } = await supabase
+      .from("audits")
+      .delete()
+      .eq("divisi_id", deletingDivisi.id);
+
+    if (errorAudits) {
+      toast({ title: "Gagal menghapus data audit", description: errorAudits.message, variant: "destructive" });
+      setDeleting(false);
+      return; // Berhenti jika gagal menghapus data turunan
+    }
+
+    // 2. Hapus tabel parent (divisi) jika anak berhasil dihapus
+    const { error: errorDivisi } = await supabase
+      .from("divisi")
+      .delete()
+      .eq("id", deletingDivisi.id);
+
+    if (errorDivisi) {
+      toast({ title: "Gagal menghapus divisi", description: errorDivisi.message, variant: "destructive" });
     } else {
-      toast({ title: "Divisi dihapus", description: `${deletingDivisi.name} berhasil dihapus.` });
+      toast({ title: "Divisi dihapus", description: `${deletingDivisi.name} beserta riwayat auditnya berhasil dihapus.` });
       setDivisiList((prev) => prev.filter((d) => d.id !== deletingDivisi.id));
     }
+    
     setDeleting(false);
     setDeleteDialogOpen(false);
     setDeletingDivisi(null);
