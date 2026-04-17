@@ -11,6 +11,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 
 interface AuditItem {
   id: string;
@@ -58,6 +61,8 @@ export default function MonitoringPage() {
   const [audits, setAudits] = useState<AuditItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const { toast } = useToast();
 
   const canDelete = role === "super_admin" || role === "auditor";
@@ -118,12 +123,65 @@ export default function MonitoringPage() {
     setDeleting(null);
   };
 
-  return (
+  const handleDeleteAll = async () => {
+      if (audits.length === 0) return;
+      setDeletingAll(true);
+      try {
+        const idsToDelete = audits.map((a) => a.id);
+        
+        // PERBAIKAN: Hapus juga relasi jawabannya seperti pada handleDelete
+        await supabase.from("audit_answers").delete().in("audit_id", idsToDelete);
+        await supabase.from("audit_reports").delete().in("audit_id", idsToDelete);
+
+        // PERBAIKAN: Ganti "audit_sessions" menjadi "audits"
+        const { error } = await supabase
+          .from("audits")
+          .delete()
+          .in("id", idsToDelete);
+
+        if (error) throw error;
+
+        toast({
+          title: "Berhasil",
+          description: `${idsToDelete.length} data audit berhasil dihapus.`,
+        });
+        
+        // Kosongkan tabel di UI
+        setAudits([]);
+        setShowDeleteAllDialog(false);
+      } catch (error: any) {
+        console.error(error);
+        toast({
+          title: "Gagal menghapus",
+          description: error.message,
+          variant: "destructive",
+        });
+      } finally {
+        setDeletingAll(false);
+      }
+    };
+
+return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Audit Monitoring</h1>
-        <p className="text-muted-foreground">Track all audit activities across the system</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-6 gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Monitoring Audit</h1>
+          <p className="text-muted-foreground">Pantau status audit dari divisi-divisi Anda</p>
+        </div>
+        
+        {/* Tombol Hapus Semua muncul jika ada data */}
+        {audits.length > 0 && role === "auditor" && (
+          <Button 
+            variant="destructive" 
+            onClick={() => setShowDeleteAllDialog(true)}
+            className="shrink-0"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Hapus Semua
+          </Button>
+        )}
       </div>
+
       <Card className="shadow-card">
         <CardContent className="p-0">
           <Table>
@@ -199,6 +257,44 @@ export default function MonitoringPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+
+      {/* PERBAIKAN: POP UP KONFIRMASI HAPUS SEMUA DIPINDAH KE SINI (DI DALAM DIV UTAMA) */}
+      <Dialog open={showDeleteAllDialog} onOpenChange={setShowDeleteAllDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Hapus Semua Audit
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Anda akan menghapus <span className="font-bold text-foreground">{audits.length}</span> sesi audit yang tampil saat ini secara permanen.
+            </p>
+            <p className="text-sm text-destructive font-medium">
+              Tindakan ini tidak dapat dibatalkan. Semua data terkait termasuk hasil jawaban dan laporan akan ikut terhapus.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteAllDialog(false)}
+              disabled={deletingAll}
+            >
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+            >
+              {deletingAll && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Ya, Hapus Semua
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div> /* <--- Ini adalah penutup div utama */
   );
 }
+
