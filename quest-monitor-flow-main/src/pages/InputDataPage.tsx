@@ -84,16 +84,44 @@ export default function InputDataPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("company_documents").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Data dihapus");
-      queryClient.invalidateQueries({ queryKey: ["company-documents", selectedCompany] });
-    },
-    onError: () => toast.error("Gagal menghapus"),
-  });
+      // Ubah parameter untuk menerima seluruh objek dokumen, bukan hanya ID-nya
+      mutationFn: async (doc: any) => { 
+        // 1. Cek apakah dokumen ini memiliki file_url (berarti ini adalah hasil upload file)
+        if (doc.file_url) {
+          // Ekstrak path file dari URL (mengambil bagian setelah nama bucket 'company-files/')
+          const urlParts = doc.file_url.split("/company-files/");
+          if (urlParts.length > 1) {
+            const filePath = decodeURIComponent(urlParts[1]); // Decode URL untuk menghindari isu karakter
+            
+            // Hapus file fisik dari Supabase Storage
+            const { error: storageError } = await supabase.storage
+              .from("company-files")
+              .remove([filePath]);
+
+            if (storageError) {
+              console.error("Storage delete error:", storageError);
+              throw new Error(`Gagal menghapus file dari storage: ${storageError.message}`);
+            }
+          }
+        }
+
+        // 2. Setelah file terhapus (atau jika ini hanya teks), hapus record dari database
+        const { error: dbError } = await supabase
+          .from("company_documents")
+          .delete()
+          .eq("id", doc.id);
+          
+        if (dbError) throw dbError;
+      },
+      onSuccess: () => {
+        toast.success("Data beserta file berhasil dihapus");
+        queryClient.invalidateQueries({ queryKey: ["company-documents", selectedCompany] });
+      },
+      onError: (err: any) => {
+        console.error(err);
+        toast.error(err.message || "Gagal menghapus");
+      },
+    });
 
   // ✅ PERUBAHAN 2: Sanitize nama file agar tidak ada spasi/karakter khusus
   // yang menyebabkan Supabase Storage menolak upload
@@ -235,7 +263,7 @@ export default function InputDataPage() {
                                   <p className="flex-1 min-w-0 text-foreground whitespace-pre-wrap">{doc.content_text}</p>
                                 )}
                                 <Button variant="ghost" size="icon" className="shrink-0 h-7 w-7"
-                                  onClick={() => deleteMutation.mutate(doc.id)}>
+                                  onClick={() => deleteMutation.mutate(doc)}>
                                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                 </Button>
                               </div>
