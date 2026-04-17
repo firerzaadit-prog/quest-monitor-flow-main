@@ -34,6 +34,11 @@ export default function DivisiPage() {
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
 
+  // --- FIX: Delete confirmation state ---
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingDivisi, setDeletingDivisi] = useState<Divisi | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const load = async () => {
     if (!user) return;
     setLoading(true);
@@ -82,7 +87,6 @@ export default function DivisiPage() {
     if (!form.divisiName.trim() || !form.picName.trim() || !form.picEmail.trim() || !form.password.trim()) return;
     setSubmitting(true);
 
-    // PAKSA AMBIL TOKEN
     const { data: { session } } = await supabase.auth.getSession();
 
     const { data, error } = await supabase.functions.invoke("create-divisi", {
@@ -92,7 +96,6 @@ export default function DivisiPage() {
         picEmail: form.picEmail.trim(),
         password: form.password,
       },
-      // KIRIM TOKEN KE BACKEND
       headers: {
         Authorization: `Bearer ${session?.access_token}`
       }
@@ -111,9 +114,26 @@ export default function DivisiPage() {
     load();
   };
 
-  const handleDelete = async (id: string) => {
-    await supabase.from("divisi").delete().eq("id", id);
-    load();
+  // --- FIX: Open delete confirmation dialog ---
+  const openDeleteDialog = (d: Divisi) => {
+    setDeletingDivisi(d);
+    setDeleteDialogOpen(true);
+  };
+
+  // --- FIX: Actual delete with loading state ---
+  const handleDelete = async () => {
+    if (!deletingDivisi) return;
+    setDeleting(true);
+    const { error } = await supabase.from("divisi").delete().eq("id", deletingDivisi.id);
+    if (error) {
+      toast({ title: "Gagal menghapus", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Divisi dihapus", description: `${deletingDivisi.name} berhasil dihapus.` });
+      setDivisiList((prev) => prev.filter((d) => d.id !== deletingDivisi.id));
+    }
+    setDeleting(false);
+    setDeleteDialogOpen(false);
+    setDeletingDivisi(null);
   };
 
   const openEdit = (d: Divisi) => {
@@ -130,7 +150,6 @@ export default function DivisiPage() {
     if (!editingDivisi || !editName.trim()) return;
     setSubmitting(true);
 
-    // PAKSA AMBIL TOKEN
     const { data: { session } } = await supabase.auth.getSession();
 
     const body: Record<string, string> = {
@@ -141,7 +160,7 @@ export default function DivisiPage() {
     };
     if (editPassword.trim()) body.newPassword = editPassword.trim();
 
-    const { data, error } = await supabase.functions.invoke("update-divisi", { 
+    const { data, error } = await supabase.functions.invoke("update-divisi", {
       body,
       headers: {
         Authorization: `Bearer ${session?.access_token}`
@@ -161,10 +180,29 @@ export default function DivisiPage() {
 
   const chatbotLink = companySlug ? `${window.location.origin}/audit/${companySlug}` : null;
 
-  const copyLink = () => {
-    if (chatbotLink) {
-      navigator.clipboard.writeText(chatbotLink);
+  // --- FIX: Clipboard with fallback for non-HTTPS environments ---
+  const copyLink = async () => {
+    if (!chatbotLink) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        // Modern API (HTTPS / localhost)
+        await navigator.clipboard.writeText(chatbotLink);
+      } else {
+        // Fallback: create a temporary textarea element
+        const textarea = document.createElement("textarea");
+        textarea.value = chatbotLink;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
       toast({ title: "Link Disalin", description: "Link chatbot berhasil disalin ke clipboard." });
+    } catch {
+      toast({ title: "Gagal menyalin", description: "Silakan salin link secara manual.", variant: "destructive" });
     }
   };
 
@@ -247,11 +285,12 @@ export default function DivisiPage() {
                   <TableCell className="font-medium">{d.name}</TableCell>
                   <TableCell>{d.pic_name || "—"}</TableCell>
                   <TableCell>{d.pic_email || "—"}</TableCell>
+                  {/* --- FIX: Tombol delete sekarang membuka dialog konfirmasi --- */}
                   <TableCell className="flex gap-1">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(d)} className="text-muted-foreground hover:text-foreground">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(d.id)} className="text-muted-foreground hover:text-destructive">
+                    <Button variant="ghost" size="icon" onClick={() => openDeleteDialog(d)} className="text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </TableCell>
@@ -262,6 +301,55 @@ export default function DivisiPage() {
         </CardContent>
       </Card>
 
+      {/* --- FIX: Delete Confirmation Dialog (style seperti Hapus Auditor) --- */}
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => { if (!deleting) { setDeleteDialogOpen(open); if (!open) setDeletingDivisi(null); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Hapus Divisi
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Anda akan menghapus divisi berikut secara permanen:
+            </p>
+            {deletingDivisi && (
+              <div className="rounded-lg border bg-muted/50 px-4 py-3 space-y-0.5">
+                <p className="font-semibold text-foreground">{deletingDivisi.name}</p>
+                {deletingDivisi.pic_email && (
+                  <p className="text-sm text-muted-foreground">{deletingDivisi.pic_email}</p>
+                )}
+                {deletingDivisi.pic_name && (
+                  <p className="text-sm text-muted-foreground">{deletingDivisi.pic_name}</p>
+                )}
+              </div>
+            )}
+            <p className="text-sm font-medium text-destructive">
+              Tindakan ini tidak dapat dibatalkan. Semua data terkait akan dihapus.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteDialogOpen(false); setDeletingDivisi(null); }}
+              disabled={deleting}
+            >
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Ya, Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Divisi</DialogTitle></DialogHeader>
