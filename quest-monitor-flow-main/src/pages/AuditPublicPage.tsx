@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import {
   Send, Loader2, CheckCircle2, ShieldAlert, Clock, AlertTriangle,
@@ -83,6 +84,8 @@ export default function AuditPublicPage() {
   const [publicWarningMinutes, setPublicWarningMinutes] = useState<number | null>(null);
   const publicWarningFiredRef = useRef(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
   const unlockPublicChat = useCallback((resolvedCompanyName: string) => {
     setMessages([
@@ -90,6 +93,7 @@ export default function AuditPublicPage() {
       { id: "ask-email", type: "question", text: "Silakan masukkan email Anda:" },
     ]);
     setPhase("ask_email");
+    setShowLoginModal(true);
   }, []);
 
   const fetchPublicAuditStatus = useCallback(async (slug: string) => {
@@ -263,11 +267,7 @@ export default function AuditPublicPage() {
   const handleLoginEmail = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: "user-email", type: "answer", text: email.trim() },
-      { id: "ask-password", type: "question", text: "Masukkan password Anda:" },
-    ]);
+    setLoginError("");
     setPhase("ask_password");
   };
 
@@ -275,16 +275,15 @@ export default function AuditPublicPage() {
     e.preventDefault();
     if (!password.trim()) return;
     setSubmitting(true);
-    setMessages((prev) => [...prev, { id: "user-password", type: "answer", text: "••••••••", isPassword: true }]);
+    setLoginError("");
 
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: password.trim() });
     if (error) {
-      setMessages((prev) => [
-        ...prev,
-        { id: "login-error", type: "system", text: `Login gagal: ${error.message}. Silakan coba lagi.` },
-        { id: "ask-email-retry", type: "question", text: "Masukkan email Anda:" },
-      ]);
-      setEmail(""); setPassword(""); setPhase("ask_email"); setSubmitting(false); return;
+      setLoginError(`Login gagal: ${error.message}. Silakan coba lagi.`);
+      setPassword("");
+      setPhase("ask_email");
+      setSubmitting(false);
+      return;
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -292,11 +291,16 @@ export default function AuditPublicPage() {
 
     const { data: divisi } = await supabase.from("divisi").select("id, name").eq("user_id", user.id).eq("company_id", companyId).limit(1).single();
     if (!divisi) {
-      setMessages((prev) => [...prev, { id: "not-divisi", type: "system", text: "Akun Anda tidak terdaftar sebagai divisi di perusahaan ini." }]);
+      setLoginError("Akun Anda tidak terdaftar sebagai divisi di perusahaan ini.");
       await supabase.auth.signOut();
       setEmail(""); setPassword(""); setPhase("ask_email"); setSubmitting(false); return;
     }
 
+    // Close modal and proceed
+    setShowLoginModal(false);
+    setMessages([
+      { id: "welcome", type: "system", text: `Selamat datang di audit ${companyName}.` },
+    ]);
     setDivisiName(divisi.name ?? "");
     await loadAudit(user.id, divisi.id);
     setSubmitting(false);
@@ -497,18 +501,18 @@ export default function AuditPublicPage() {
   if (phase === "no_audit_yet") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-center space-y-6 p-4">
-        <div className="bg-orange-100 dark:bg-orange-900/30 rounded-full p-6">
-          <ShieldAlert className="h-16 w-16 text-orange-500" />
+        <div className="bg-red-100 dark:bg-red-900/30 rounded-full p-6">
+          <ShieldAlert className="h-16 w-16 text-red-500" />
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-foreground">Audit Belum Dimulai</h2>
+          <h2 className="text-2xl font-bold text-foreground">Anda Belum Berhak untuk Tes Audit</h2>
           <p className="text-muted-foreground max-w-md text-base">
-            Saat ini belum ada sesi audit yang aktif untuk perusahaan <span className="font-semibold text-foreground">{companyName}</span>. Silakan hubungi auditor Anda untuk informasi lebih lanjut.
+            Saat ini belum ada sesi audit yang aktif untuk perusahaan <span className="font-semibold text-foreground">{companyName}</span>. Auditor belum memberikan akses kepada Anda untuk mengikuti tes audit ini.
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-4 py-2">
           <AlertTriangle className="h-4 w-4" />
-          <span>Halaman ini akan aktif setelah auditor memulai sesi audit.</span>
+          <span>Silakan hubungi auditor Anda untuk informasi lebih lanjut.</span>
         </div>
       </div>
     );
@@ -539,8 +543,8 @@ export default function AuditPublicPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header with Timer */}
-      <div className="bg-primary text-primary-foreground px-5 py-3 flex items-center justify-between shadow-md">
+      {/* Sticky Header with Timer */}
+      <div className="sticky top-0 z-50 bg-primary text-primary-foreground px-5 py-3 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-full bg-primary-foreground/15 flex items-center justify-center">
             <Bot className="h-5 w-5" />
@@ -584,24 +588,25 @@ export default function AuditPublicPage() {
         )}
       </div>
 
-      <div className="flex-1 max-w-2xl mx-auto w-full p-4 flex flex-col">
-        {/* Warning Banner */}
-        {showWarningBanner && !completed && (
-          <div className="mb-3 flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-300 shadow-sm">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
-            <div className="flex-1">
-              <span className="font-semibold">⚠️ Waktu Hampir Habis! </span>
-              {warningBannerText}
-            </div>
-            <button
-              onClick={() => setShowWarningBanner(false)}
-              className="ml-2 shrink-0 rounded-full hover:bg-red-100 p-0.5 transition-colors"
-              aria-label="Tutup peringatan"
-            >
-              <X className="h-4 w-4 text-red-500" />
-            </button>
+      {/* Sticky Warning Banner */}
+      {showWarningBanner && !completed && (
+        <div className="sticky top-[60px] z-40 mx-4 mt-3 flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm border border-red-300 shadow-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+          <div className="flex-1">
+            <span className="font-semibold">⚠️ Waktu Hampir Habis! </span>
+            {warningBannerText}
           </div>
-        )}
+          <button
+            onClick={() => setShowWarningBanner(false)}
+            className="ml-2 shrink-0 rounded-full hover:bg-red-100 p-0.5 transition-colors"
+            aria-label="Tutup peringatan"
+          >
+            <X className="h-4 w-4 text-red-500" />
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 max-w-2xl mx-auto w-full p-4 flex flex-col">
 
         {/* Extra time banner */}
         {extraTime && !completed && (
@@ -666,22 +671,14 @@ export default function AuditPublicPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Login: Email */}
-          {phase === "ask_email" && (
-            <form onSubmit={handleLoginEmail} className="border-t p-3 flex gap-2 bg-card">
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email Anda..." className="flex-1 rounded-full bg-muted/50 border-0 focus-visible:ring-1" autoFocus />
-              <Button type="submit" disabled={!email.trim()} size="icon" className="rounded-full"><Send className="h-4 w-4" /></Button>
-            </form>
-          )}
-
-          {/* Login: Password */}
-          {phase === "ask_password" && (
-            <form onSubmit={handleLoginPassword} className="border-t p-3 flex gap-2 bg-card">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password Anda..." className="flex-1 rounded-full bg-muted/50 border-0 focus-visible:ring-1" autoFocus />
-              <Button type="submit" disabled={!password.trim() || submitting} size="icon" className="rounded-full">
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {/* Login button - shows when in login phase */}
+          {(phase === "ask_email" || phase === "ask_password") && (
+            <div className="border-t p-4 bg-card flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Silakan login untuk memulai audit</p>
+              <Button onClick={() => setShowLoginModal(true)} size="sm" className="gap-2">
+                <ShieldAlert className="h-4 w-4" /> Login
               </Button>
-            </form>
+            </div>
           )}
 
           {/* Audit Input */}
@@ -731,6 +728,77 @@ export default function AuditPublicPage() {
           )}
         </div>
       </div>
+
+      {/* Login Modal Dialog */}
+      <Dialog open={showLoginModal} onOpenChange={(open) => { if (!open && !submitting) { setShowLoginModal(false); } }}>
+        <DialogContent className="sm:max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <div className="flex flex-col items-center text-center pb-2">
+            <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+              <ShieldAlert className="h-7 w-7 text-primary" />
+            </div>
+            <DialogHeader className="items-center">
+              <DialogTitle className="text-xl">Login untuk Mengakses Audit</DialogTitle>
+              <DialogDescription className="mt-1">
+                Masukkan kredensial yang diberikan oleh auditor untuk <span className="font-semibold text-foreground">{companyName}</span>
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {loginError && (
+            <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm border border-red-200">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          {phase === "ask_email" ? (
+            <form onSubmit={handleLoginEmail} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="login-email" className="text-sm font-medium">Email</Label>
+                <Input
+                  id="login-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Email Anda..."
+                  autoFocus
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={!email.trim()}>
+                Lanjutkan
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleLoginPassword} className="space-y-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Email: <span className="font-medium text-foreground">{email}</span></p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="login-password" className="text-sm font-medium">Password</Label>
+                <Input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password Anda..."
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => { setPhase("ask_email"); setPassword(""); setLoginError(""); }} disabled={submitting}>
+                  Kembali
+                </Button>
+                <Button type="submit" className="flex-1" disabled={!password.trim() || submitting}>
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Masuk
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Completion Dialog */}
       <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
