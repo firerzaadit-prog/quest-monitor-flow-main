@@ -339,7 +339,7 @@ export default function MonitoringPage() {
                       {a.status}
                     </Badge>
                     {a.timeout_completed && (
-                      <p className="text-[10px] text-destructive mt-0.5">Waktu habis</p>
+                      <p className="text-[10px] text-destructive mt-0.5"></p>
                     )}
                   </TableCell>
                   <TableCell>
