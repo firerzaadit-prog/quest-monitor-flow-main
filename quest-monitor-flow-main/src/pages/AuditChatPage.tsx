@@ -410,16 +410,6 @@ export default function AuditChatPage() {
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
-      {/* Fixed Timer Pill - top right overlay on navbar */}
-      {timeLeft !== null && !completed && (
-        <div className={`fixed top-3 right-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm ${getTimerPillBg()}`}>
-          <Clock className={`h-3.5 w-3.5 ${getTimerColor()}`} />
-          <span className={`text-sm font-mono font-semibold ${getTimerColor()} ${timeExpired || (timeLeft !== null && timeLeft < 300) ? "animate-pulse" : ""}`}>
-            {timeExpired ? "00:00" : formatTime(timeLeft)}
-          </span>
-        </div>
-      )}
-
       {/* Header */}
       <div className="mb-3">
         <h1 className="text-2xl font-semibold text-foreground">Audit Chat</h1>
