@@ -12,6 +12,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Zap, FileText, Save, Loader2, Trash2, File } from "lucide-react";
 import { toast } from "sonner";
 
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp'
+];
+
+const MAX_SIZE = 50 * 1024 * 1024; // 5MB
+
+const validateFile = (file: File) => {
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    throw new Error('Tipe file tidak diizinkan. Hanya PDF dan Gambar yang diperbolehkan.');
+  }
+  if (file.size > MAX_SIZE) {
+    throw new Error('Ukuran file terlalu besar. Maksimal 5MB.');
+  }
+  return true;
+};
+
 // ✅ PERUBAHAN 1: "visi_misi" dipecah menjadi "visi" dan "misi" secara terpisah
 const CATEGORIES = [
   { key: "visi", label: "Visi" },
