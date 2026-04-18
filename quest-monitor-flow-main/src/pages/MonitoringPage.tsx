@@ -27,6 +27,7 @@ interface AuditItem {
   pic_name: string;
   company_name: string;
   auditor_email: string;
+  timeout_completed: boolean;
 }
 
 function TimeRemaining({ expiresAt }: { expiresAt: string }) {
@@ -71,8 +72,6 @@ export default function MonitoringPage() {
   const load = async () => {
     setLoading(true);
 
-    // ✅ FIX: Query divisi tanpa kolom pic_name (tidak ada di tabel divisi)
-    // Ambil user_id dan auditor_id saja, lalu fetch profiles secara terpisah
     const { data, error } = await supabase
       .from("audits")
       .select(`
@@ -94,6 +93,52 @@ export default function MonitoringPage() {
       return;
     }
 
+    // ─── AUTO-COMPLETE: audit ongoing yang expires_at sudah lewat ───────────
+    const now = new Date();
+    const expiredOngoing = data.filter(
+      (a) => a.status === "ongoing" && a.expires_at && new Date(a.expires_at) <= now
+    );
+
+    if (expiredOngoing.length > 0) {
+      const expiredIds = expiredOngoing.map((a) => a.id);
+      const completedAt = now.toISOString();
+
+      // 1. Update status → completed di DB
+      await supabase
+        .from("audits")
+        .update({ status: "completed", completed_at: completedAt })
+        .in("id", expiredIds);
+
+      // 2. Buat audit_report kosong untuk yang belum punya report
+      const { data: existingReports } = await supabase
+        .from("audit_reports")
+        .select("audit_id")
+        .in("audit_id", expiredIds);
+
+      const alreadyHasReport = new Set((existingReports ?? []).map((r) => r.audit_id));
+
+      const reportsToInsert = expiredIds
+        .filter((id) => !alreadyHasReport.has(id))
+        .map((id) => ({
+          audit_id: id,
+          findings: "Audit tidak diselesaikan — waktu habis tanpa ada jawaban.",
+          recommendations: "Disarankan untuk melakukan audit ulang karena tidak ada jawaban yang masuk.",
+        }));
+
+      if (reportsToInsert.length > 0) {
+        await supabase.from("audit_reports").insert(reportsToInsert);
+      }
+
+      // Update status di local data agar tidak perlu fetch ulang
+      for (const audit of data) {
+        if (expiredIds.includes(audit.id)) {
+          (audit as any).status = "completed";
+          (audit as any).completed_at = completedAt;
+        }
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Kumpulkan semua user_id (PIC) dan auditor_id yang unik untuk batch fetch
     const allUserIds = new Set<string>();
     const allAuditorIds = new Set<string>();
@@ -104,7 +149,6 @@ export default function MonitoringPage() {
       if (divisi?.auditor_id) allAuditorIds.add(divisi.auditor_id);
     }
 
-    // ✅ FIX: Batch fetch profiles untuk PIC (pic_name diambil dari full_name di profiles)
     const profileMap = new Map<string, { email: string; full_name: string }>();
     if (allUserIds.size > 0) {
       const { data: picProfiles } = await supabase
@@ -116,7 +160,6 @@ export default function MonitoringPage() {
       });
     }
 
-    // ✅ FIX: Batch fetch profiles untuk auditor email
     const auditorMap = new Map<string, string>();
     if (allAuditorIds.size > 0) {
       const { data: auditorProfiles } = await supabase
@@ -128,19 +171,40 @@ export default function MonitoringPage() {
       });
     }
 
-    // Susun items dari data yang sudah di-fetch
+    // Batch fetch answer counts untuk semua completed (termasuk yang baru saja di-complete)
+    const completedAuditIds = data
+      .filter((a) => (a as any).status === "completed")
+      .map((a) => a.id);
+
+    const answerCountMap = new Map<string, number>();
+    if (completedAuditIds.length > 0) {
+      const { data: answerRows } = await supabase
+        .from("audit_answers")
+        .select("audit_id")
+        .in("audit_id", completedAuditIds);
+      (answerRows ?? []).forEach((row) => {
+        answerCountMap.set(row.audit_id, (answerCountMap.get(row.audit_id) ?? 0) + 1);
+      });
+    }
+
     const items: AuditItem[] = data.map((audit) => {
       const divisi = audit.divisi as any;
       const company = audit.companies as any;
+      const currentStatus = (audit as any).status as string;
+      const currentCompletedAt = (audit as any).completed_at as string | null;
 
       const picProfile = divisi?.user_id ? profileMap.get(divisi.user_id) : null;
       const auditorEmail = divisi?.auditor_id ? auditorMap.get(divisi.auditor_id) ?? "—" : "—";
 
+      // timeout_completed: completed tapi 0 jawaban
+      const answerCount = answerCountMap.get(audit.id) ?? 0;
+      const timeout_completed = currentStatus === "completed" && answerCount === 0;
+
       return {
         id: audit.id,
-        status: audit.status,
+        status: currentStatus,
         created_at: audit.created_at,
-        completed_at: audit.completed_at,
+        completed_at: currentCompletedAt,
         started_at: audit.started_at,
         expires_at: audit.expires_at,
         duration_minutes: audit.duration_minutes,
@@ -148,6 +212,7 @@ export default function MonitoringPage() {
         pic_name: picProfile?.full_name || picProfile?.email || "—",
         company_name: company?.company_name ?? "—",
         auditor_email: auditorEmail,
+        timeout_completed,
       };
     });
 
@@ -156,6 +221,18 @@ export default function MonitoringPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Auto-reload setiap 30 detik untuk menangkap audit yang baru saja expired
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Cek apakah ada audit ongoing yang expires_at sudah lewat
+      const hasExpired = audits.some(
+        (a) => a.status === "ongoing" && a.expires_at && new Date(a.expires_at) <= new Date()
+      );
+      if (hasExpired) load();
+    }, 5000); // cek setiap 5 detik
+    return () => clearInterval(interval);
+  }, [audits]);
 
   const handleDelete = async (auditId: string) => {
     setDeleting(auditId);
@@ -251,13 +328,24 @@ export default function MonitoringPage() {
                   <TableCell>
                     <Badge
                       variant={a.status === "completed" ? "default" : "secondary"}
-                      className={a.status === "completed" ? "bg-success text-success-foreground" : ""}
+                      className={
+                        a.status === "completed"
+                          ? a.timeout_completed
+                            ? "bg-destructive text-destructive-foreground"
+                            : "bg-success text-success-foreground"
+                          : ""
+                      }
                     >
                       {a.status}
                     </Badge>
+                    {a.timeout_completed && (
+                      <p className="text-[10px] text-destructive mt-0.5">Waktu habis</p>
+                    )}
                   </TableCell>
                   <TableCell>
-                    {a.status === "ongoing" && a.expires_at ? (
+                    {a.status === "completed" ? (
+                      <span className="font-mono text-sm text-muted-foreground">0:00</span>
+                    ) : a.status === "ongoing" && a.expires_at ? (
                       <div className="flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                         <TimeRemaining expiresAt={a.expires_at} />
